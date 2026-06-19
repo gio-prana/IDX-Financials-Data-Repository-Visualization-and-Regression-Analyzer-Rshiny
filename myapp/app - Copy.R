@@ -5,12 +5,12 @@
 # Required packages:
 # install.packages(c(
 #   "shiny", "shinydashboard", "DT", "readxl", "dplyr", "ggplot2",
-#   "shinycssloaders", "lmtest", "car", "moments", "scales", "openxlsx"
+#   "shinycssloaders", "lmtest", "car", "moments", "scales"
 # ))
 
 required_packages <- c(
   "shiny", "shinydashboard", "DT", "readxl", "dplyr", "ggplot2",
-  "shinycssloaders", "lmtest", "car", "moments", "scales", "openxlsx"
+  "shinycssloaders", "lmtest", "car", "moments", "scales"
 )
 
 missing_packages <- required_packages[!vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)]
@@ -33,7 +33,6 @@ library(lmtest)
 library(car)
 library(moments)
 library(scales)
-library(openxlsx)
 
 # ============================================================
 # CONSTANTS
@@ -481,7 +480,7 @@ compute_correlation_results <- function(df, numeric_cols, method = "pearson", di
 
 create_correlation_heatmap <- function(corr_matrix, title, theme_name,
                                        palette_name = "Blue-White-Red Classic",
-                                       show_values = TRUE, value_label_size = 3, value_digits = 2,
+                                       show_values = TRUE, value_label_size = 3,
                                        legend_position = "Right",
                                        title_size = 16, axis_text_size = 9,
                                        legend_title_size = 10, legend_text_size = 9,
@@ -508,7 +507,7 @@ create_correlation_heatmap <- function(corr_matrix, title, theme_name,
     ) +
     theme(panel.grid = element_blank())
   if (show_values) {
-    p <- p + geom_text(aes(label = ifelse(is.na(Correlation), "", sprintf(paste0("%.", value_digits, "f"), Correlation))), size = value_label_size, color = th$text_color)
+    p <- p + geom_text(aes(label = ifelse(is.na(Correlation), "", sprintf("%.2f", Correlation))), size = value_label_size, color = th$text_color)
   }
   p
 }
@@ -1143,116 +1142,6 @@ static_export_link_ui <- function(result, button_label = "Download generated PNG
   )
 }
 
-
-# ============================================================
-# EXCEL EXPORT HELPERS
-# ============================================================
-
-safe_sheet_name <- function(name) {
-  # Excel sheet names cannot contain: \, /, ?, *, [, ], :
-  # Use fixed = TRUE replacement to avoid invalid escape patterns in R strings.
-  name <- as.character(name)
-  invalid_chars <- c("\\", "/", "?", "*", "[", "]", ":")
-  for (ch in invalid_chars) {
-    name <- gsub(ch, "_", name, fixed = TRUE)
-  }
-  name <- trimws(name)
-  name <- substr(name, 1, 31)
-  ifelse(nchar(name) == 0, "Sheet", name)
-}
-
-write_table_sheet <- function(wb, sheet_name, df) {
-  sheet_name <- safe_sheet_name(sheet_name)
-  openxlsx::addWorksheet(wb, sheet_name)
-  df <- make_display_safe(as.data.frame(df))
-  openxlsx::writeData(wb, sheet_name, df)
-  if (ncol(df) > 0) {
-    openxlsx::setColWidths(wb, sheet_name, cols = 1:ncol(df), widths = "auto")
-    header_style <- openxlsx::createStyle(textDecoration = "bold", fgFill = "#D9EAF7", border = "Bottom")
-    openxlsx::addStyle(wb, sheet_name, header_style, rows = 1, cols = 1:ncol(df), gridExpand = TRUE)
-    openxlsx::freezePane(wb, sheet_name, firstRow = TRUE)
-  }
-}
-
-export_descriptive_workbook <- function(file, filtered_df, univariate_df, grouped_df, metadata_df = NULL) {
-  wb <- openxlsx::createWorkbook()
-  if (!is.null(metadata_df)) write_table_sheet(wb, "Export Info", metadata_df)
-  write_table_sheet(wb, "Filtered Data", filtered_df)
-  write_table_sheet(wb, "Univariate Descriptive", univariate_df)
-  write_table_sheet(wb, "Grouped Descriptive", grouped_df)
-  openxlsx::saveWorkbook(wb, file, overwrite = TRUE)
-}
-
-make_static_excel_filename <- function(prefix) {
-  stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-  paste0(prefix, "_", stamp, ".xlsx")
-}
-
-export_descriptive_static_excel <- function(filtered_df, univariate_df, grouped_df, metadata_df = NULL) {
-  export_dir <- make_static_export_dir()
-  filename <- make_static_excel_filename("statcal_online_idx_financials_descriptive_tables")
-  out_file <- file.path(export_dir, filename)
-  
-  result <- tryCatch({
-    export_descriptive_workbook(out_file, filtered_df, univariate_df, grouped_df, metadata_df)
-    if (!file.exists(out_file) || file.info(out_file)$size <= 0) {
-      stop("The Excel workbook was not created.")
-    }
-    list(
-      ok = TRUE,
-      message = "Excel file has been generated successfully.",
-      file = normalizePath(out_file, winslash = "/", mustWork = FALSE),
-      href = make_static_href(filename),
-      filename = filename
-    )
-  }, error = function(e) {
-    list(
-      ok = FALSE,
-      message = paste("Excel export failed:", conditionMessage(e)),
-      file = out_file,
-      href = NULL,
-      filename = filename
-    )
-  })
-  
-  result
-}
-
-static_file_link_ui <- function(result, button_label = "Download generated file") {
-  if (is.null(result)) {
-    return(tags$p("Click Generate Excel first, then the download link will appear here."))
-  }
-  if (!isTRUE(result$ok) || is.null(result$href)) {
-    return(tagList(
-      tags$p(style = "color: #b00020;", result$message),
-      tags$p(style = "font-size: 11px; color: #777; word-break: break-all;", paste("Local file path:", result$file))
-    ))
-  }
-  
-  tagList(
-    tags$p(result$message),
-    tags$a(
-      href = result$href,
-      download = result$filename,
-      target = "_blank",
-      class = "btn btn-success",
-      icon("download"),
-      button_label
-    ),
-    tags$span(" "),
-    tags$a(
-      href = result$href,
-      target = "_blank",
-      class = "btn btn-info",
-      icon("external-link-alt"),
-      "Open file"
-    ),
-    tags$p(style = "font-size: 12px; margin-top: 8px; color: #555;", paste("Generated file:", result$filename)),
-    tags$p(style = "font-size: 11px; color: #777; word-break: break-all;", paste("Local file path:", result$file))
-  )
-}
-
-
 # ============================================================
 # UI
 # ============================================================
@@ -1287,7 +1176,7 @@ ui <- dashboardPage(
               tags$b("Website: "), tags$a(href = WEBSITE_URL, target = "_blank", WEBSITE_URL), tags$br(),
               tags$b("STATCAL ONLINE Page: "), tags$a(href = STATCAL_ONLINE_URL, target = "_blank", STATCAL_ONLINE_URL), tags$br(),
               tags$b("IDX Stock Data Source: "), tags$a(href = IDX_STOCK_LIST_URL, target = "_blank", IDX_STOCK_LIST_URL), tags$br(),
-              tags$b("Dataset & Financial Report: "), tags$a(href = TRAINING_DATA_URL, target = "_blank", "Open Google Drive Folder")
+              tags$b("Dataset & Report: "), tags$a(href = TRAINING_DATA_URL, target = "_blank", "Open Google Drive Folder")
             )
           )
         )
@@ -1437,7 +1326,6 @@ ui <- dashboardPage(
                 column(2, sliderInput("corr_title_size", "Title", 8, 34, 16, 1)),
                 column(2, sliderInput("corr_axis_text_size", "Axis text", 5, 22, 9, 1)),
                 column(2, sliderInput("corr_value_label_size", "Value labels", 2, 8, 3, 0.2)),
-                column(2, sliderInput("corr_value_digits", "Value digits in heatmap", 0, 8, 2, 1)),
                 column(2, sliderInput("corr_legend_title_size", "Legend title", 5, 24, 10, 1)),
                 column(2, sliderInput("corr_legend_text_size", "Legend text", 5, 22, 9, 1))
               ))
@@ -1583,15 +1471,6 @@ ui <- dashboardPage(
               actionButton("generate_regression_png", "Generate Regression PNG", icon = icon("image")),
               br(), br(), uiOutput("regression_static_download_ui"))
         )
-        ,
-        fluidRow(
-          box(width = 12, title = "Descriptive Tables Excel", status = "success", solidHeader = TRUE,
-              tags$p("Generate and download the current univariate and grouped descriptive statistics into one Excel workbook. The workbook also includes the filtered dataset and export metadata."),
-              actionButton("generate_descriptive_excel", "Generate Descriptive Tables Excel", icon = icon("file-excel")),
-              br(), br(), uiOutput("excel_static_download_ui"),
-              br(),
-              downloadButton("download_descriptive_excel", "Fallback Download Excel"))
-        )
       )
     )
   )
@@ -1607,7 +1486,6 @@ server <- function(input, output, session) {
   corr_export_result <- reactiveVal(NULL)
   scatter_export_result <- reactiveVal(NULL)
   regression_export_result <- reactiveVal(NULL)
-  excel_export_result <- reactiveVal(NULL)
   
   output$line_static_download_ui <- renderUI({
     static_export_link_ui(line_export_result(), "Download Line Chart PNG")
@@ -1623,10 +1501,6 @@ server <- function(input, output, session) {
   
   output$regression_static_download_ui <- renderUI({
     static_export_link_ui(regression_export_result(), "Download Regression Diagnostic PNG")
-  })
-  
-  output$excel_static_download_ui <- renderUI({
-    static_file_link_ui(excel_export_result(), "Download Descriptive Tables Excel")
   })
   
   current_excel_path <- reactive({
@@ -1839,7 +1713,6 @@ server <- function(input, output, session) {
       palette_name = input$corr_palette,
       show_values = input$corr_show_values,
       value_label_size = input$corr_value_label_size,
-      value_digits = safe_export_number(input$corr_value_digits, 2, 0, 8),
       legend_position = input$corr_legend_position,
       title_size = input$corr_title_size,
       axis_text_size = input$corr_axis_text_size,
@@ -2084,83 +1957,6 @@ server <- function(input, output, session) {
     )
     regression_export_result(result)
   })
-  
-  
-  observeEvent(input$generate_descriptive_excel, {
-    
-    df <- filtered_data()
-    nums <- numeric_columns()
-    
-    univ_vars <- input$univariate_numeric_cols
-    if (is.null(univ_vars) || length(univ_vars) == 0) {
-      univ_vars <- default_numeric_columns(nums)
-    }
-    
-    group_num_vars <- input$group_numeric_cols
-    if (is.null(group_num_vars) || length(group_num_vars) == 0) {
-      group_num_vars <- default_numeric_columns(nums)
-    }
-    
-    group_vars <- input$group_cols
-    if (is.null(group_vars) || length(group_vars) == 0) {
-      group_vars <- intersect(c("Year", "Ticker Code"), names(df))
-    }
-    
-    univ_digits <- safe_export_number(input$univariate_digits, 3, 0, 8)
-    group_digits <- safe_export_number(input$group_digits, 3, 0, 8)
-    univ_table <- compute_descriptive_statistics(df, univ_vars, univ_digits)
-    grouped_table <- compute_grouped_descriptive_statistics(df, group_num_vars, group_vars, group_digits)
-    
-    metadata <- data.frame(
-      Item = c("Application", "Export Time", "Rows After Filtering", "Univariate Variables", "Grouped Numeric Variables", "Group Variables"),
-      Value = c(APP_TITLE, as.character(Sys.time()), as.character(nrow(df)), paste(univ_vars, collapse = ", "), paste(group_num_vars, collapse = ", "), paste(group_vars, collapse = ", ")),
-      stringsAsFactors = FALSE
-    )
-    
-    result <- export_descriptive_static_excel(df, univ_table, grouped_table, metadata)
-    excel_export_result(result)
-  })
-  
-  
-  output$download_descriptive_excel <- downloadHandler(
-    filename = function() {
-      paste0("statcal_online_idx_financials_descriptive_tables_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".xlsx")
-    },
-    contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    content = function(file) {
-      
-      df <- filtered_data()
-      nums <- numeric_columns()
-      
-      univ_vars <- input$univariate_numeric_cols
-      if (is.null(univ_vars) || length(univ_vars) == 0) {
-        univ_vars <- default_numeric_columns(nums)
-      }
-      
-      group_num_vars <- input$group_numeric_cols
-      if (is.null(group_num_vars) || length(group_num_vars) == 0) {
-        group_num_vars <- default_numeric_columns(nums)
-      }
-      
-      group_vars <- input$group_cols
-      if (is.null(group_vars) || length(group_vars) == 0) {
-        group_vars <- intersect(c("Year", "Ticker Code"), names(df))
-      }
-      
-      univ_digits <- safe_export_number(input$univariate_digits, 3, 0, 8)
-      group_digits <- safe_export_number(input$group_digits, 3, 0, 8)
-      univ_table <- compute_descriptive_statistics(df, univ_vars, univ_digits)
-      grouped_table <- compute_grouped_descriptive_statistics(df, group_num_vars, group_vars, group_digits)
-      
-      metadata <- data.frame(
-        Item = c("Application", "Export Time", "Rows After Filtering", "Univariate Variables", "Grouped Numeric Variables", "Group Variables"),
-        Value = c(APP_TITLE, as.character(Sys.time()), as.character(nrow(df)), paste(univ_vars, collapse = ", "), paste(group_num_vars, collapse = ", "), paste(group_vars, collapse = ", ")),
-        stringsAsFactors = FALSE
-      )
-      
-      export_descriptive_workbook(file, df, univ_table, grouped_table, metadata)
-    }
-  )
   
   # Legacy downloadHandlers are intentionally kept below as fallback only.
   

@@ -1,18 +1,26 @@
-# STATCAL ONLINE IDX Financials Visualization and Regression Shiny App
+# STATCAL ONLINE - IDX Financials Data Repository, Visualization, and Regression Analyzer
 
-This version adds:
+## New features in this version
 
-1. Correlation heatmap color palette options suitable for publication-style figures.
-2. Flexible mean-value label positioning in the multi-panel line chart.
-3. Existing static PNG export through `www/statcal_exports/` is retained for Chrome, Opera, and RStudio Viewer compatibility.
+1. Flexible decimal digits for correlation values displayed inside the correlation heatmap.
+2. Export descriptive statistics tables to Excel (`.xlsx`), including:
+   - Export Info
+   - Filtered Data
+   - Univariate Descriptive
+   - Grouped Descriptive
+3. Existing PNG export via `www/statcal_exports/` is retained.
 
-Run in RStudio:
+## Required packages
 
 ```r
 install.packages(c(
   "shiny", "shinydashboard", "DT", "readxl", "dplyr", "ggplot2",
-  "shinycssloaders", "lmtest", "car", "moments", "scales"
+  "shinycssloaders", "lmtest", "car", "moments", "scales", "openxlsx"
 ))
+```
 
+## Run
+
+```r
 shiny::runApp(".")
 ```
