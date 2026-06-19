@@ -44,7 +44,7 @@ APP_UPDATED <- "Last updated on June 19, 2026"
 WEBSITE_URL <- "https://statcal.com/"
 STATCAL_ONLINE_URL <- "https://statcal.com/statcal%20online.html"
 TRAINING_DATA_URL <- "https://drive.google.com/drive/folders/1s273Ad5FUElhzd5G16jWSBxbOtforzRR?usp=sharing"
-IDX_STOCK_LIST_URL <- "https://www.idx.id/id/data-pasar/data-saham/daftar-saham/"
+IDX_STOCK_LIST_URL <- "https://www.idx.id/id/perusahaan-tercatat/laporan-keuangan-dan-tahunan/"
 SAMPLE_DATA_PATH <- "data idx perbankan.xlsx"
 LOGO_PATH <- "logo_statcal.png"
 FINANCIAL_URL_COL <- "Financial Statement URL"
@@ -69,6 +69,42 @@ THEMES <- list(
   "Dark Navy Presentation" = list(
     figure_facecolor = "#0B1320", axes_facecolor = "#111C2E", text_color = "#FFFFFF",
     grid_color = "#3B4A5F", spine_color = "#B8C7D9", point_color = "#BBE1FA"
+  )
+)
+
+
+CORR_PALETTES <- list(
+  "Blue-White-Red Classic" = list(
+    colors = c("#2166AC", "#F7F7F7", "#B2182B"),
+    values = c(-1, 0, 1)
+  ),
+  "Navy-White-Orange" = list(
+    colors = c("#053061", "#F7F7F7", "#B35806"),
+    values = c(-1, 0, 1)
+  ),
+  "Teal-White-Purple" = list(
+    colors = c("#018571", "#F7F7F7", "#762A83"),
+    values = c(-1, 0, 1)
+  ),
+  "Green-White-Brown" = list(
+    colors = c("#1B7837", "#F7F7F7", "#8C510A"),
+    values = c(-1, 0, 1)
+  ),
+  "Scientific Blue-Yellow-Red" = list(
+    colors = c("#313695", "#74ADD1", "#FFFFBF", "#F46D43", "#A50026"),
+    values = c(-1, -0.5, 0, 0.5, 1)
+  ),
+  "Editorial Gray-Blue-Red" = list(
+    colors = c("#4D4D4D", "#BDBDBD", "#FFFFFF", "#FDB863", "#B2182B"),
+    values = c(-1, -0.5, 0, 0.5, 1)
+  ),
+  "High-Contrast Journal" = list(
+    colors = c("#081D58", "#2B8CBE", "#F7F7F7", "#F03B20", "#67000D"),
+    values = c(-1, -0.5, 0, 0.5, 1)
+  ),
+  "Soft Publication Pastel" = list(
+    colors = c("#92C5DE", "#F7F7F7", "#F4A582"),
+    values = c(-1, 0, 1)
   )
 )
 
@@ -105,7 +141,7 @@ to_numeric_vector <- function(x) {
   txt <- gsub("—", "", txt, fixed = TRUE)
   txt <- trimws(txt)
   txt[txt %in% c("", "nan", "NaN", "None", "NaT", "-", "N/A", "NA", "n/a", "na")] <- NA
-
+  
   convert_one <- function(v) {
     if (is.na(v) || v == "") return(NA_real_)
     v <- trimws(v)
@@ -136,7 +172,7 @@ to_numeric_vector <- function(x) {
     if (negative) out <- -out
     out
   }
-
+  
   vapply(txt, convert_one, numeric(1))
 }
 
@@ -198,9 +234,33 @@ round_numeric_df <- function(df, digits) {
 }
 
 get_theme <- function(theme_name) {
-  theme <- THEMES[[theme_name]]
-  if (is.null(theme)) theme <- THEMES[["White Publication"]]
-  theme
+  if (is.null(theme_name) || length(theme_name) == 0 || is.na(theme_name) || !(theme_name %in% names(THEMES))) {
+    return(THEMES[["White Publication"]])
+  }
+  THEMES[[theme_name]]
+}
+
+safe_theme_bg <- function(theme_name) {
+  tryCatch(get_theme(theme_name)$figure_facecolor, error = function(e) "white")
+}
+
+
+get_corr_palette <- function(palette_name) {
+  if (is.null(palette_name) || length(palette_name) == 0 || is.na(palette_name) || !(palette_name %in% names(CORR_PALETTES))) {
+    return(CORR_PALETTES[["Blue-White-Red Classic"]])
+  }
+  CORR_PALETTES[[palette_name]]
+}
+
+correlation_fill_scale <- function(palette_name) {
+  pal <- get_corr_palette(palette_name)
+  ggplot2::scale_fill_gradientn(
+    colors = pal$colors,
+    values = scales::rescale(pal$values, to = c(0, 1), from = c(-1, 1)),
+    limits = c(-1, 1),
+    na.value = "grey90",
+    name = "Correlation"
+  )
 }
 
 legend_position_value <- function(position_label) {
@@ -266,7 +326,7 @@ compute_descriptive_statistics <- function(df, numeric_cols, decimal_digits) {
 
 compute_grouped_descriptive_statistics <- function(df, numeric_cols, group_cols, decimal_digits) {
   if (length(group_cols) == 0) return(compute_descriptive_statistics(df, numeric_cols, decimal_digits))
-
+  
   rows <- lapply(numeric_cols, function(nm) {
     tmp <- df[, group_cols, drop = FALSE]
     tmp$.value <- to_numeric_vector(df[[nm]])
@@ -342,6 +402,8 @@ create_panel_line_plot <- function(line_df, title, subtitle, x_label, y_label,
                                    theme_name, show_points = TRUE, line_width = 1.1,
                                    point_size = 2.4, show_value_labels = FALSE,
                                    value_label_size = 3.0, compact_labels = TRUE,
+                                   label_nudge_x = 0,
+                                   label_nudge_y_percent = 5,
                                    share_y = FALSE, panel_cols = 2,
                                    legend_position = "Right",
                                    title_size = 16, subtitle_size = 11,
@@ -356,7 +418,24 @@ create_panel_line_plot <- function(line_df, title, subtitle, x_label, y_label,
   }
   if (show_value_labels) {
     line_df$.Label <- if (compact_labels) compact_number(line_df$Mean, digits = 2) else as.character(round(line_df$Mean, 3))
-    p <- p + geom_text(data = line_df, aes(label = .Label), vjust = -0.8, size = value_label_size, show.legend = FALSE)
+    line_df <- line_df %>%
+      group_by(Variable) %>%
+      mutate(
+        .Y_Range = max(Mean, na.rm = TRUE) - min(Mean, na.rm = TRUE),
+        .Y_Range = ifelse(is.finite(.Y_Range) & .Y_Range > 0, .Y_Range, max(abs(Mean), na.rm = TRUE) * 0.10),
+        .Y_Range = ifelse(is.finite(.Y_Range) & .Y_Range > 0, .Y_Range, 1),
+        .Label_Y = Mean + (.Y_Range * label_nudge_y_percent / 100)
+      ) %>%
+      ungroup()
+    p <- p + geom_text(
+      data = line_df,
+      aes(y = .Label_Y, label = .Label),
+      position = position_nudge(x = label_nudge_x),
+      vjust = 0.5,
+      hjust = 0.5,
+      size = value_label_size,
+      show.legend = FALSE
+    )
   }
   scales_y <- if (share_y) "fixed" else "free_y"
   p +
@@ -400,6 +479,7 @@ compute_correlation_results <- function(df, numeric_cols, method = "pearson", di
 }
 
 create_correlation_heatmap <- function(corr_matrix, title, theme_name,
+                                       palette_name = "Blue-White-Red Classic",
                                        show_values = TRUE, value_label_size = 3,
                                        legend_position = "Right",
                                        title_size = 16, axis_text_size = 9,
@@ -410,7 +490,7 @@ create_correlation_heatmap <- function(corr_matrix, title, theme_name,
   names(corr_df) <- c("Var1", "Var2", "Correlation")
   p <- ggplot(corr_df, aes(x = Var2, y = Var1, fill = Correlation)) +
     geom_tile(color = "white", linewidth = 0.4) +
-    scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B", midpoint = 0, limits = c(-1, 1), na.value = "grey90") +
+    correlation_fill_scale(palette_name) +
     labs(title = title, x = NULL, y = NULL, fill = "Correlation") +
     coord_fixed() +
     statcal_theme_gg(
@@ -585,10 +665,10 @@ normality_tests <- function(residuals, alpha, decimal_digits) {
   if (length(residuals) < 3) {
     return(data.frame(Test = character(), Statistic = numeric(), `p-value` = numeric(), Decision = character(), Note = character(), check.names = FALSE))
   }
-
+  
   z <- if (sd(residuals) > 0) (residuals - mean(residuals)) / sd(residuals) else residuals
   rows <- list()
-
+  
   ks <- suppressWarnings(tryCatch(stats::ks.test(z, "pnorm"), error = function(e) NULL))
   rows[[length(rows) + 1]] <- data.frame(
     Test = "Kolmogorov-Smirnov",
@@ -598,7 +678,7 @@ normality_tests <- function(residuals, alpha, decimal_digits) {
     Note = "Based on standardized residuals using ks.test().",
     check.names = FALSE
   )
-
+  
   jb <- tryCatch(moments::jarque.test(residuals), error = function(e) NULL)
   rows[[length(rows) + 1]] <- data.frame(
     Test = "Jarque-Bera",
@@ -608,7 +688,7 @@ normality_tests <- function(residuals, alpha, decimal_digits) {
     Note = "Computed using moments::jarque.test().",
     check.names = FALSE
   )
-
+  
   shapiro_values <- if (length(residuals) > 5000) residuals[1:5000] else residuals
   sw <- tryCatch(stats::shapiro.test(shapiro_values), error = function(e) NULL)
   rows[[length(rows) + 1]] <- data.frame(
@@ -619,7 +699,7 @@ normality_tests <- function(residuals, alpha, decimal_digits) {
     Note = if (length(residuals) > 5000) "Computed on the first 5000 residuals due to shapiro.test() limitation." else "Computed using shapiro.test().",
     check.names = FALSE
   )
-
+  
   round_numeric_df(bind_rows(rows), decimal_digits)
 }
 
@@ -647,12 +727,12 @@ multicollinearity_diagnostics <- function(model, reg_df, independent_cols, decim
       check.names = FALSE
     )
   }
-
+  
   x_cols <- paste0("X", seq_along(independent_cols))
   corr_df <- as.data.frame(round(cor(reg_df[, x_cols, drop = FALSE], use = "pairwise.complete.obs"), decimal_digits))
   names(corr_df) <- independent_cols
   corr_df <- cbind(Variable = independent_cols, corr_df)
-
+  
   list(vif = round_numeric_df(vif_df, decimal_digits), corr = corr_df)
 }
 
@@ -735,10 +815,10 @@ heteroskedasticity_tests <- function(model, reg_df, independent_cols, alpha, dec
     Decision = if (!is.null(bp) && bp$p.value < alpha) "Heteroskedasticity detected" else "No heteroskedasticity detected",
     check.names = FALSE
   ))
-
+  
   glejser <- glejser_test(model, reg_df, independent_cols, alpha, decimal_digits)
   rows[[length(rows) + 1]] <- glejser$summary
-
+  
   list(summary = round_numeric_df(bind_rows(rows), decimal_digits), glejser_coef = glejser$coef)
 }
 
@@ -750,7 +830,7 @@ outlier_influence_table <- function(model, reg_df, decimal_digits) {
   p <- length(coef(model))
   leverage_cutoff <- 2 * p / max(n, 1)
   cooks_cutoff <- 4 / max(n, 1)
-
+  
   out <- data.frame(Source_Row = reg_df$Source_Row, check.names = FALSE)
   for (id_col in intersect(c("Ticker Code", "Company Name", "Year"), names(reg_df))) {
     out[[id_col]] <- reg_df[[id_col]]
@@ -804,7 +884,7 @@ write_error_png <- function(file, message, width = 8, height = 5, dpi = 300, bg 
   width <- safe_export_number(width, 8, 3, 12)
   height <- safe_export_number(height, 5, 3, 12)
   dpi <- safe_export_number(dpi, 300, 72, 1200)
-
+  
   grDevices::png(filename = file, width = width, height = height, units = "in", res = dpi, bg = bg)
   on.exit(grDevices::dev.off(), add = TRUE)
   graphics::par(bg = bg, mar = c(1, 1, 1, 1))
@@ -814,19 +894,28 @@ write_error_png <- function(file, message, width = 8, height = 5, dpi = 300, bg 
   graphics::text(0.5, 0.40, paste("Reason:", message), cex = 0.8)
 }
 
-save_ggplot_download <- function(file, plot_object, width, height, dpi, bg = "white") {
+save_ggplot_download <- function(file, plot_function, width, height, dpi, bg = "white") {
   width <- safe_export_number(width, 8, 3, 20)
   height <- safe_export_number(height, 6, 3, 20)
   dpi <- safe_export_number(dpi, 1200, 72, 1500)
-
-  # Use a temporary PNG file with explicit .png extension, then copy it to Shiny's
-  # temporary download path. This avoids browser errors such as download_line_png.txt.
+  bg <- ifelse(is.null(bg) || length(bg) == 0 || is.na(bg), "white", bg)
+  
+  # The ggplot object must be created inside tryCatch.
+  # If line_plot_object(), corr_plot_object(), or scatter_plot_object() fails
+  # before the file is created, browsers show messages such as:
+  # "download_scatter_png.htm - file wasn't available on site".
   tmp_png <- tempfile(fileext = ".png")
-
+  
   tryCatch({
+    plot_object <- plot_function()
+    
+    if (!inherits(plot_object, "ggplot")) {
+      stop("The selected output is not a ggplot object. Please open the chart tab and check the selected variables.")
+    }
+    
     ggplot2::ggsave(
       filename = tmp_png,
-      device = "png",
+      device = grDevices::png,
       plot = plot_object,
       width = width,
       height = height,
@@ -835,11 +924,11 @@ save_ggplot_download <- function(file, plot_object, width, height, dpi, bg = "wh
       bg = bg,
       limitsize = FALSE
     )
-
+    
     if (!file.exists(tmp_png) || file.info(tmp_png)$size <= 0) {
       stop("The PNG file was not created by ggsave().")
     }
-
+    
     ok <- file.copy(tmp_png, file, overwrite = TRUE)
     if (!ok || !file.exists(file) || file.info(file)$size <= 0) {
       stop("The generated PNG could not be copied to the Shiny download file.")
@@ -856,16 +945,16 @@ save_base_png_download <- function(file, plot_function, width, height, dpi, bg =
   height <- safe_export_number(height, 6, 3, 20)
   dpi <- safe_export_number(dpi, 1200, 72, 1500)
   tmp_png <- tempfile(fileext = ".png")
-
+  
   tryCatch({
     grDevices::png(filename = tmp_png, width = width, height = height, units = "in", res = dpi, bg = bg)
     plot_function()
     grDevices::dev.off()
-
+    
     if (!file.exists(tmp_png) || file.info(tmp_png)$size <= 0) {
       stop("The PNG file was not created by png().")
     }
-
+    
     ok <- file.copy(tmp_png, file, overwrite = TRUE)
     if (!ok || !file.exists(file) || file.info(file)$size <= 0) {
       stop("The generated PNG could not be copied to the Shiny download file.")
@@ -881,6 +970,178 @@ save_base_png_download <- function(file, plot_function, width, height, dpi, bg =
   })
 }
 
+
+
+# ============================================================
+# STATIC WWW PNG EXPORT HELPERS - CHROME / OPERA SAFE VERSION
+# ============================================================
+# This method writes PNG files into the Shiny app www folder:
+#   www/statcal_exports/
+# Shiny serves files in www as real static browser files. This avoids
+# temporary download endpoints and avoids the tempdir() + addResourcePath()
+# problem that can work in RStudio Viewer but fail in Chrome/Opera.
+
+make_static_export_dir <- function() {
+  export_dir <- file.path(getwd(), "www", "statcal_exports")
+  if (!dir.exists(export_dir)) {
+    dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  export_dir
+}
+
+# Create the folder as soon as the app starts.
+make_static_export_dir()
+
+make_export_filename <- function(prefix, dpi) {
+  dpi <- safe_export_number(dpi, 1200, 72, 1500)
+  stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  paste0(prefix, "_", dpi, "dpi_", stamp, ".png")
+}
+
+make_static_href <- function(filename) {
+  # Files stored in www/statcal_exports are accessed from browser as:
+  # statcal_exports/filename.png
+  paste0("statcal_exports/", utils::URLencode(filename, reserved = TRUE))
+}
+
+export_ggplot_static_png <- function(plot_function, prefix, width, height, dpi, bg = "white") {
+  export_dir <- make_static_export_dir()
+  width <- safe_export_number(width, 8, 3, 20)
+  height <- safe_export_number(height, 6, 3, 20)
+  dpi <- safe_export_number(dpi, 1200, 72, 1500)
+  bg <- ifelse(is.null(bg) || length(bg) == 0 || is.na(bg), "white", bg)
+  
+  filename <- make_export_filename(prefix, dpi)
+  out_file <- file.path(export_dir, filename)
+  
+  result <- tryCatch({
+    plot_object <- plot_function()
+    if (!inherits(plot_object, "ggplot")) {
+      stop("The selected output is not a ggplot object. Please open the chart tab and check the selected variables.")
+    }
+    
+    grDevices::png(
+      filename = out_file,
+      width = width,
+      height = height,
+      units = "in",
+      res = dpi,
+      bg = bg,
+      type = ifelse(.Platform$OS.type == "windows", "windows", "cairo")
+    )
+    print(plot_object)
+    grDevices::dev.off()
+    
+    if (!file.exists(out_file) || file.info(out_file)$size <= 0) {
+      stop("The PNG file was not created.")
+    }
+    
+    list(
+      ok = TRUE,
+      message = "PNG file has been generated successfully.",
+      file = normalizePath(out_file, winslash = "/", mustWork = FALSE),
+      href = make_static_href(filename),
+      filename = filename
+    )
+  }, error = function(e) {
+    while (grDevices::dev.cur() > 1) {
+      try(grDevices::dev.off(), silent = TRUE)
+    }
+    error_file <- file.path(export_dir, filename)
+    write_error_png(error_file, conditionMessage(e), width = width, height = height, dpi = min(dpi, 600), bg = bg)
+    list(
+      ok = FALSE,
+      message = paste("PNG export failed, but an error PNG was generated:", conditionMessage(e)),
+      file = normalizePath(error_file, winslash = "/", mustWork = FALSE),
+      href = make_static_href(filename),
+      filename = filename
+    )
+  })
+  
+  result
+}
+
+export_base_static_png <- function(plot_function, prefix, width, height, dpi, bg = "white") {
+  export_dir <- make_static_export_dir()
+  width <- safe_export_number(width, 8, 3, 20)
+  height <- safe_export_number(height, 6, 3, 20)
+  dpi <- safe_export_number(dpi, 1200, 72, 1500)
+  bg <- ifelse(is.null(bg) || length(bg) == 0 || is.na(bg), "white", bg)
+  
+  filename <- make_export_filename(prefix, dpi)
+  out_file <- file.path(export_dir, filename)
+  
+  result <- tryCatch({
+    grDevices::png(
+      filename = out_file,
+      width = width,
+      height = height,
+      units = "in",
+      res = dpi,
+      bg = bg,
+      type = ifelse(.Platform$OS.type == "windows", "windows", "cairo")
+    )
+    plot_function()
+    grDevices::dev.off()
+    
+    if (!file.exists(out_file) || file.info(out_file)$size <= 0) {
+      stop("The PNG file was not created.")
+    }
+    
+    list(
+      ok = TRUE,
+      message = "PNG file has been generated successfully.",
+      file = normalizePath(out_file, winslash = "/", mustWork = FALSE),
+      href = make_static_href(filename),
+      filename = filename
+    )
+  }, error = function(e) {
+    while (grDevices::dev.cur() > 1) {
+      try(grDevices::dev.off(), silent = TRUE)
+    }
+    error_file <- file.path(export_dir, filename)
+    write_error_png(error_file, conditionMessage(e), width = width, height = height, dpi = min(dpi, 600), bg = bg)
+    list(
+      ok = FALSE,
+      message = paste("PNG export failed, but an error PNG was generated:", conditionMessage(e)),
+      file = normalizePath(error_file, winslash = "/", mustWork = FALSE),
+      href = make_static_href(filename),
+      filename = filename
+    )
+  })
+  
+  result
+}
+
+static_export_link_ui <- function(result, button_label = "Download generated PNG") {
+  if (is.null(result)) {
+    return(tags$p("Click Generate PNG first, then the download link will appear here."))
+  }
+  
+  tagList(
+    tags$p(if (isTRUE(result$ok)) result$message else result$message),
+    tags$a(
+      href = result$href,
+      download = result$filename,
+      target = "_blank",
+      class = "btn btn-success",
+      icon("download"),
+      button_label
+    ),
+    tags$span(" "),
+    tags$a(
+      href = result$href,
+      target = "_blank",
+      class = "btn btn-info",
+      icon("external-link-alt"),
+      "Open PNG in new tab"
+    ),
+    tags$p(style = "font-size: 12px; margin-top: 8px; color: #555;", paste("Generated file:", result$filename)),
+    tags$p(style = "font-size: 11px; color: #777; word-break: break-all;", paste("Local file path:", result$file)),
+    tags$img(src = result$href, style = "max-width: 100%; margin-top: 8px; border: 1px solid #ddd;")
+  )
+}
+
 # ============================================================
 # UI
 # ============================================================
@@ -894,11 +1155,11 @@ ui <- dashboardPage(
     tags$head(
       tags$style(HTML("\n        .content-wrapper, .right-side { background-color: #f7f9fb; }\n        .box { border-radius: 10px; }\n        .statcal-title { font-size: 24px; font-weight: 700; color: #1F4E79; }\n        .statcal-subtitle { font-size: 18px; font-weight: 600; color: #333333; }\n        .statcal-note { line-height: 1.6; text-align: justify; }\n      "))
     ),
-
+    
     fluidRow(
       box(
         width = 12, status = "primary", solidHeader = TRUE,
-        title = "STATCAL ONLINE IDX Financials Data Repository, Visualization, and Regression Analyzer",
+        title = "STATCAL ONLINE for IDX Financials Data Repository, Visualization, and Regression Analyzer",
         fluidRow(
           column(
             width = 2,
@@ -915,16 +1176,16 @@ ui <- dashboardPage(
               tags$b("Website: "), tags$a(href = WEBSITE_URL, target = "_blank", WEBSITE_URL), tags$br(),
               tags$b("STATCAL ONLINE Page: "), tags$a(href = STATCAL_ONLINE_URL, target = "_blank", STATCAL_ONLINE_URL), tags$br(),
               tags$b("IDX Stock Data Source: "), tags$a(href = IDX_STOCK_LIST_URL, target = "_blank", IDX_STOCK_LIST_URL), tags$br(),
-              tags$b("Training Data: "), tags$a(href = TRAINING_DATA_URL, target = "_blank", "Open Google Drive Folder")
+              tags$b("Dataset & Report: "), tags$a(href = TRAINING_DATA_URL, target = "_blank", "Open Google Drive Folder")
             )
           )
         )
       )
     ),
-
+    
     tabsetPanel(
       id = "main_tabs",
-
+      
       tabPanel(
         "1. Data & Filters",
         br(),
@@ -955,7 +1216,7 @@ ui <- dashboardPage(
               shinycssloaders::withSpinner(DTOutput("financial_url_table")))
         )
       ),
-
+      
       tabPanel(
         "2. Univariate Descriptive",
         br(),
@@ -970,7 +1231,7 @@ ui <- dashboardPage(
               shinycssloaders::withSpinner(DTOutput("univariate_table")))
         )
       ),
-
+      
       tabPanel(
         "3. Grouped Descriptive",
         br(),
@@ -987,7 +1248,7 @@ ui <- dashboardPage(
               shinycssloaders::withSpinner(DTOutput("grouped_table")))
         )
       ),
-
+      
       tabPanel(
         "4. Multi-Panel Line Chart",
         br(),
@@ -1026,8 +1287,11 @@ ui <- dashboardPage(
               ),
               fluidRow(
                 column(2, sliderInput("line_legend_title_size", "Legend title", 5, 24, 10, 1)),
-                column(2, sliderInput("line_value_label_size", "Value labels", 2, 8, 3, 0.2))
-              ))
+                column(2, sliderInput("line_value_label_size", "Value labels", 2, 8, 3, 0.2)),
+                column(2, sliderInput("line_label_nudge_x", "Label left/right", min = -0.5, max = 0.5, value = 0, step = 0.05)),
+                column(2, sliderInput("line_label_nudge_y_percent", "Label down/up (%)", min = -30, max = 30, value = 5, step = 1))
+              ),
+              tags$p(style = "font-size: 12px; color: #666;", "Label left/right: negative moves labels to the left, positive moves labels to the right. Label down/up (%): negative moves labels downward, positive moves labels upward based on each panel's Y-axis range."))
         ),
         fluidRow(
           box(width = 12, title = "Multi-Panel Mean Line Chart", status = "warning", solidHeader = TRUE,
@@ -1038,7 +1302,7 @@ ui <- dashboardPage(
               shinycssloaders::withSpinner(DTOutput("line_data_table")))
         )
       ),
-
+      
       tabPanel(
         "5. Correlation Heatmap",
         br(),
@@ -1051,6 +1315,7 @@ ui <- dashboardPage(
               selectInput("corr_legend_position", "Legend position", choices = legend_choices, selected = "Right")),
           box(width = 4, title = "Heatmap Settings", status = "primary", solidHeader = TRUE,
               selectInput("corr_theme", "Heatmap theme", choices = names(THEMES), selected = "White Publication"),
+              selectInput("corr_palette", "Correlation color palette", choices = names(CORR_PALETTES), selected = "Blue-White-Red Classic"),
               checkboxInput("corr_show_values", "Show correlation values", value = TRUE),
               textInput("corr_title", "Title", value = "Correlation Heatmap of IDX Financials Variables"),
               sliderInput("corr_x_text_angle", "X-axis text angle", min = 0, max = 90, value = 45, step = 5))
@@ -1076,7 +1341,7 @@ ui <- dashboardPage(
               shinycssloaders::withSpinner(DTOutput("corr_pvalue_table")))
         )
       ),
-
+      
       tabPanel(
         "6. Scatterplot Panel",
         br(),
@@ -1123,7 +1388,7 @@ ui <- dashboardPage(
               shinycssloaders::withSpinner(DTOutput("scatter_data_table")))
         )
       ),
-
+      
       tabPanel(
         "7. Regression & Assumption Tests",
         br(),
@@ -1179,7 +1444,7 @@ ui <- dashboardPage(
               shinycssloaders::withSpinner(plotOutput("reg_diagnostic_plot", height = "460px")))
         )
       ),
-
+      
       tabPanel(
         "8. Export Charts",
         br(),
@@ -1194,13 +1459,17 @@ ui <- dashboardPage(
         ),
         fluidRow(
           box(width = 3, title = "Line Chart PNG", status = "warning", solidHeader = TRUE,
-              downloadButton("download_line_png", "Download Line Chart PNG")),
+              actionButton("generate_line_png", "Generate Line Chart PNG", icon = icon("image")),
+              br(), br(), uiOutput("line_static_download_ui")),
           box(width = 3, title = "Correlation Heatmap PNG", status = "warning", solidHeader = TRUE,
-              downloadButton("download_corr_png", "Download Correlation Heatmap PNG")),
+              actionButton("generate_corr_png", "Generate Correlation PNG", icon = icon("image")),
+              br(), br(), uiOutput("corr_static_download_ui")),
           box(width = 3, title = "Scatterplot PNG", status = "warning", solidHeader = TRUE,
-              downloadButton("download_scatter_png", "Download Scatterplot PNG")),
+              actionButton("generate_scatter_png", "Generate Scatterplot PNG", icon = icon("image")),
+              br(), br(), uiOutput("scatter_static_download_ui")),
           box(width = 3, title = "Regression Diagnostic PNG", status = "warning", solidHeader = TRUE,
-              downloadButton("download_regression_png", "Download Regression Diagnostic PNG"))
+              actionButton("generate_regression_png", "Generate Regression PNG", icon = icon("image")),
+              br(), br(), uiOutput("regression_static_download_ui"))
         )
       )
     )
@@ -1212,7 +1481,28 @@ ui <- dashboardPage(
 # ============================================================
 
 server <- function(input, output, session) {
-
+  
+  line_export_result <- reactiveVal(NULL)
+  corr_export_result <- reactiveVal(NULL)
+  scatter_export_result <- reactiveVal(NULL)
+  regression_export_result <- reactiveVal(NULL)
+  
+  output$line_static_download_ui <- renderUI({
+    static_export_link_ui(line_export_result(), "Download Line Chart PNG")
+  })
+  
+  output$corr_static_download_ui <- renderUI({
+    static_export_link_ui(corr_export_result(), "Download Correlation Heatmap PNG")
+  })
+  
+  output$scatter_static_download_ui <- renderUI({
+    static_export_link_ui(scatter_export_result(), "Download Scatterplot PNG")
+  })
+  
+  output$regression_static_download_ui <- renderUI({
+    static_export_link_ui(regression_export_result(), "Download Regression Diagnostic PNG")
+  })
+  
   current_excel_path <- reactive({
     if (!is.null(input$uploaded_file)) {
       input$uploaded_file$datapath
@@ -1222,7 +1512,7 @@ server <- function(input, output, session) {
       NULL
     }
   })
-
+  
   output$sheet_ui <- renderUI({
     path <- current_excel_path()
     if (is.null(path)) {
@@ -1231,7 +1521,7 @@ server <- function(input, output, session) {
     sheets <- readxl::excel_sheets(path)
     selectInput("sheet_name", "Worksheet", choices = sheets, selected = sheets[1])
   })
-
+  
   data_raw <- reactive({
     path <- current_excel_path()
     req(path)
@@ -1240,11 +1530,11 @@ server <- function(input, output, session) {
     if (is.null(sheet) || !(sheet %in% sheets)) sheet <- sheets[1]
     clean_dataframe(readxl::read_excel(path, sheet = sheet))
   })
-
+  
   numeric_columns <- reactive({
     detect_numeric_columns(data_raw())
   })
-
+  
   output$filter_ui <- renderUI({
     df <- data_raw()
     ui_list <- list()
@@ -1263,7 +1553,7 @@ server <- function(input, output, session) {
     if (length(ui_list) == 0) return(helpText("No default Year or Ticker Code columns were found."))
     do.call(fluidRow, ui_list)
   })
-
+  
   filtered_data <- reactive({
     df <- data_raw()
     if ("Year" %in% names(df) && !is.null(input$filter_year) && length(input$filter_year) > 0) {
@@ -1274,7 +1564,7 @@ server <- function(input, output, session) {
     }
     df
   })
-
+  
   output$metric_original_rows <- renderValueBox({
     valueBox(nrow(data_raw()), "Original rows", icon = icon("table"), color = "blue")
   })
@@ -1287,15 +1577,15 @@ server <- function(input, output, session) {
   output$metric_numeric <- renderValueBox({
     valueBox(length(numeric_columns()), "Detected numeric variables", icon = icon("calculator"), color = "purple")
   })
-
+  
   output$data_preview <- renderDT({
     DT::datatable(make_display_safe(filtered_data()), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$numeric_variables_text <- renderPrint({
     print(numeric_columns())
   })
-
+  
   output$financial_url_table <- renderDT({
     df <- filtered_data()
     if (!(FINANCIAL_URL_COL %in% names(df))) {
@@ -1304,54 +1594,54 @@ server <- function(input, output, session) {
     url_cols <- intersect(c("Ticker Code", "Company Name", "Year", FINANCIAL_URL_COL), names(df))
     DT::datatable(make_display_safe(df[, url_cols, drop = FALSE]), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$univariate_numeric_ui <- renderUI({
     nums <- numeric_columns()
     selectizeInput("univariate_numeric_cols", "Select numeric variables", choices = nums, selected = default_numeric_columns(nums), multiple = TRUE)
   })
-
+  
   output$univariate_table <- renderDT({
     req(input$univariate_numeric_cols)
     out <- compute_descriptive_statistics(filtered_data(), input$univariate_numeric_cols, input$univariate_digits)
     DT::datatable(make_display_safe(out), options = list(scrollX = TRUE, pageLength = 15))
   })
-
+  
   output$group_numeric_ui <- renderUI({
     nums <- numeric_columns()
     selectizeInput("group_numeric_cols", "Select numeric variables", choices = nums, selected = default_numeric_columns(nums), multiple = TRUE)
   })
-
+  
   output$group_vars_ui <- renderUI({
     df <- data_raw()
     defaults <- intersect(c("Year", "Ticker Code"), names(df))
     selectizeInput("group_cols", "Group by category variables", choices = names(df), selected = defaults, multiple = TRUE)
   })
-
+  
   output$grouped_table <- renderDT({
     req(input$group_numeric_cols, input$group_cols)
     out <- compute_grouped_descriptive_statistics(filtered_data(), input$group_numeric_cols, input$group_cols, input$group_digits)
     DT::datatable(make_display_safe(out), options = list(scrollX = TRUE, pageLength = 15))
   })
-
+  
   # ---------------- Line chart ----------------
   output$line_x_ui <- renderUI({
     df <- data_raw()
     selected <- if ("Year" %in% names(df)) "Year" else names(df)[1]
     selectInput("line_x", "X-axis variable", choices = names(df), selected = selected)
   })
-
+  
   output$line_numeric_ui <- renderUI({
     nums <- numeric_columns()
     selectizeInput("line_numeric_cols", "Panel numeric variables", choices = nums, selected = default_numeric_columns(nums, n = 4), multiple = TRUE)
   })
-
+  
   output$line_split_ui <- renderUI({
     df <- data_raw()
     choices <- c("None", names(df))
     selected <- if ("Ticker Code" %in% names(df)) "Ticker Code" else "None"
     selectInput("line_split", "Split lines by category", choices = choices, selected = selected)
   })
-
+  
   line_chart_data <- reactive({
     req(input$line_x, input$line_numeric_cols)
     validate(need(length(input$line_numeric_cols) >= 1, "Please select at least one numeric variable."))
@@ -1363,7 +1653,7 @@ server <- function(input, output, session) {
       sort_x = input$line_sort_x
     )
   })
-
+  
   line_plot_object <- reactive({
     create_panel_line_plot(
       line_chart_data(),
@@ -1378,6 +1668,8 @@ server <- function(input, output, session) {
       show_value_labels = input$line_show_values,
       value_label_size = input$line_value_label_size,
       compact_labels = input$line_compact_labels,
+      label_nudge_x = safe_export_number(input$line_label_nudge_x, 0, -2, 2),
+      label_nudge_y_percent = safe_export_number(input$line_label_nudge_y_percent, 5, -100, 100),
       share_y = input$line_share_y,
       panel_cols = input$line_panel_cols,
       legend_position = input$line_legend_position,
@@ -1391,33 +1683,34 @@ server <- function(input, output, session) {
       x_text_angle = input$line_x_text_angle
     )
   })
-
+  
   output$line_plot <- renderPlot({
     line_plot_object()
   })
-
+  
   output$line_data_table <- renderDT({
     DT::datatable(make_display_safe(line_chart_data()), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   # ---------------- Correlation heatmap ----------------
   output$corr_numeric_ui <- renderUI({
     nums <- numeric_columns()
     selectizeInput("corr_numeric_cols", "Select numeric variables", choices = nums, selected = default_numeric_columns(nums, n = 6), multiple = TRUE)
   })
-
+  
   corr_results <- reactive({
     req(input$corr_numeric_cols)
     validate(need(length(input$corr_numeric_cols) >= 2, "Please select at least two numeric variables."))
     compute_correlation_results(filtered_data(), input$corr_numeric_cols, method = input$corr_method, digits = input$corr_digits)
   })
-
+  
   corr_plot_object <- reactive({
     res <- corr_results()
     create_correlation_heatmap(
       res$corr,
       title = input$corr_title,
       theme_name = input$corr_theme,
+      palette_name = input$corr_palette,
       show_values = input$corr_show_values,
       value_label_size = input$corr_value_label_size,
       legend_position = input$corr_legend_position,
@@ -1428,19 +1721,19 @@ server <- function(input, output, session) {
       x_text_angle = input$corr_x_text_angle
     )
   })
-
+  
   output$corr_heatmap <- renderPlot({
     corr_plot_object()
   })
-
+  
   output$corr_matrix_table <- renderDT({
     DT::datatable(make_display_safe(corr_results()$corr_table), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$corr_pvalue_table <- renderDT({
     DT::datatable(make_display_safe(corr_results()$pval_table), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   # ---------------- Scatterplot panel ----------------
   output$scatter_dependent_ui <- renderUI({
     nums <- numeric_columns()
@@ -1448,7 +1741,7 @@ server <- function(input, output, session) {
     selected <- if (length(preferred) > 0) preferred[1] else nums[1]
     selectInput("scatter_dependent", "Dependent variable", choices = nums, selected = selected)
   })
-
+  
   output$scatter_independent_ui <- renderUI({
     nums <- numeric_columns()
     dep <- input$scatter_dependent
@@ -1456,27 +1749,27 @@ server <- function(input, output, session) {
     selected <- choices[seq_len(min(3, length(choices)))]
     selectizeInput("scatter_independent", "Independent variables", choices = choices, selected = selected, multiple = TRUE)
   })
-
+  
   output$scatter_color_ui <- renderUI({
     df <- data_raw()
     choices <- c("None", names(df))
     selected <- if ("Ticker Code" %in% names(df)) "Ticker Code" else "None"
     selectInput("scatter_color", "Color by category", choices = choices, selected = selected)
   })
-
+  
   output$scatter_label_ui <- renderUI({
     df <- data_raw()
     choices <- c("None", names(df))
     selected <- if ("Ticker Code" %in% names(df)) "Ticker Code" else "None"
     selectInput("scatter_label", "Point label variable", choices = choices, selected = selected)
   })
-
+  
   scatter_chart_data <- reactive({
     req(input$scatter_dependent, input$scatter_independent)
     validate(need(length(input$scatter_independent) >= 1, "Please select at least one independent variable."))
     build_scatter_long_data(filtered_data(), input$scatter_dependent, input$scatter_independent, input$scatter_color, input$scatter_label)
   })
-
+  
   scatter_plot_object <- reactive({
     create_scatter_panel_plot(
       scatter_chart_data(),
@@ -1500,16 +1793,16 @@ server <- function(input, output, session) {
       legend_text_size = input$scatter_legend_text_size
     )
   })
-
+  
   output$scatter_plot <- renderPlot({
     scatter_plot_object()
   })
-
+  
   output$scatter_data_table <- renderDT({
     DT::datatable(make_display_safe(scatter_chart_data()), options = list(scrollX = TRUE, pageLength = 10))
   })
-
-
+  
+  
   # ---------------- Regression and assumption tests ----------------
   output$reg_dependent_ui <- renderUI({
     nums <- numeric_columns()
@@ -1517,7 +1810,7 @@ server <- function(input, output, session) {
     selected <- if (length(preferred) > 0) preferred[1] else nums[1]
     selectInput("reg_dependent", "Dependent variable", choices = nums, selected = selected)
   })
-
+  
   output$reg_independent_ui <- renderUI({
     nums <- numeric_columns()
     dep <- input$reg_dependent
@@ -1526,77 +1819,77 @@ server <- function(input, output, session) {
     selected <- if (length(preferred) > 0) preferred[seq_len(min(3, length(preferred)))] else choices[seq_len(min(3, length(choices)))]
     selectizeInput("reg_independent", "Independent variables", choices = choices, selected = selected, multiple = TRUE)
   })
-
+  
   regression_results <- reactive({
     req(input$reg_dependent, input$reg_independent)
     validate(need(length(input$reg_independent) >= 1, "Please select at least one independent variable."))
     fit_ols_regression(filtered_data(), input$reg_dependent, input$reg_independent)
   })
-
+  
   output$reg_model_fit <- renderDT({
     res <- regression_results()
     DT::datatable(model_fit_summary_table(res$model, input$reg_dependent, input$reg_digits), options = list(dom = "t", scrollX = TRUE))
   })
-
+  
   output$reg_coefficients <- renderDT({
     res <- regression_results()
     DT::datatable(regression_coefficient_table(res$model, res$mapping, as.numeric(input$reg_alpha), input$reg_digits), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$normality_table <- renderDT({
     res <- regression_results()
     DT::datatable(normality_tests(residuals(res$model), as.numeric(input$reg_alpha), input$reg_digits), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$vif_table <- renderDT({
     res <- regression_results()
     diag <- multicollinearity_diagnostics(res$model, res$reg_df, input$reg_independent, input$reg_digits)
     DT::datatable(make_display_safe(diag$vif), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$independent_corr_table <- renderDT({
     res <- regression_results()
     diag <- multicollinearity_diagnostics(res$model, res$reg_df, input$reg_independent, input$reg_digits)
     DT::datatable(make_display_safe(diag$corr), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$hetero_table <- renderDT({
     res <- regression_results()
     h <- heteroskedasticity_tests(res$model, res$reg_df, input$reg_independent, as.numeric(input$reg_alpha), input$reg_digits)
     DT::datatable(make_display_safe(h$summary), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$glejser_coefficients <- renderDT({
     res <- regression_results()
     h <- heteroskedasticity_tests(res$model, res$reg_df, input$reg_independent, as.numeric(input$reg_alpha), input$reg_digits)
     DT::datatable(make_display_safe(h$glejser_coef), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$autocorr_table <- renderDT({
     res <- regression_results()
     DT::datatable(autocorrelation_tests(res$model, as.numeric(input$reg_alpha), input$reg_digits), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   outlier_data <- reactive({
     res <- regression_results()
     outlier_influence_table(res$model, res$reg_df, input$reg_digits)
   })
-
+  
   output$metric_residual_outliers <- renderValueBox({
     od <- outlier_data()
     valueBox(sum(od[["Residual Outlier"]], na.rm = TRUE), "Residual outliers", icon = icon("exclamation-triangle"), color = "red")
   })
-
+  
   output$metric_high_leverage <- renderValueBox({
     od <- outlier_data()
     valueBox(sum(od[["High Leverage"]], na.rm = TRUE), "High leverage", icon = icon("balance-scale"), color = "yellow")
   })
-
+  
   output$metric_influential_cook <- renderValueBox({
     od <- outlier_data()
     valueBox(sum(od[["Influential by Cook"]], na.rm = TRUE), "Influential by Cook", icon = icon("bullseye"), color = "purple")
   })
-
+  
   output$outlier_table <- renderDT({
     od <- outlier_data()
     flagged <- od[od[["Any Flag"]], , drop = FALSE]
@@ -1605,79 +1898,137 @@ server <- function(input, output, session) {
     }
     DT::datatable(make_display_safe(flagged), options = list(scrollX = TRUE, pageLength = 10))
   })
-
+  
   output$reg_diagnostic_plot <- renderPlot({
     res <- regression_results()
     plot_regression_diagnostics(res$model, input$reg_theme, input$reg_show_grid)
   })
-
+  
+  # ---------------- Static PNG export through www/statcal_exports ----------------
+  # This avoids Shiny temporary download endpoints and gives the browser a real file URL.
+  
+  observeEvent(input$generate_line_png, {
+    result <- export_ggplot_static_png(
+      plot_function = function() line_plot_object(),
+      prefix = "statcal_online_idx_financials_panel_line_chart",
+      width = input$export_width,
+      height = input$export_height,
+      dpi = input$export_dpi,
+      bg = safe_theme_bg(input$line_theme)
+    )
+    line_export_result(result)
+  })
+  
+  observeEvent(input$generate_corr_png, {
+    result <- export_ggplot_static_png(
+      plot_function = function() corr_plot_object(),
+      prefix = "statcal_online_idx_financials_correlation_heatmap",
+      width = input$export_width,
+      height = input$export_height,
+      dpi = input$export_dpi,
+      bg = safe_theme_bg(input$corr_theme)
+    )
+    corr_export_result(result)
+  })
+  
+  observeEvent(input$generate_scatter_png, {
+    result <- export_ggplot_static_png(
+      plot_function = function() scatter_plot_object(),
+      prefix = "statcal_online_idx_financials_scatterplot_panel",
+      width = input$export_width,
+      height = input$export_height,
+      dpi = input$export_dpi,
+      bg = safe_theme_bg(input$scatter_theme)
+    )
+    scatter_export_result(result)
+  })
+  
+  observeEvent(input$generate_regression_png, {
+    result <- export_base_static_png(
+      plot_function = function() {
+        res <- regression_results()
+        plot_regression_diagnostics(res$model, input$reg_theme, input$reg_show_grid)
+      },
+      prefix = "statcal_online_idx_financials_regression_diagnostic",
+      width = input$export_width,
+      height = input$export_height,
+      dpi = input$export_dpi,
+      bg = safe_theme_bg(input$reg_theme)
+    )
+    regression_export_result(result)
+  })
+  
+  # Legacy downloadHandlers are intentionally kept below as fallback only.
+  
   # ---------------- Export PNG charts ----------------
   # Robust download handlers:
   # 1) Use contentType = "image/png" so the browser knows the output is PNG.
   # 2) Save to a temporary .png file first, then copy it to Shiny's download path.
   # 3) If the plot fails, create an error PNG instead of returning no file.
-
+  
   output$download_line_png <- downloadHandler(
     filename = function() paste0("statcal_online_idx_financials_panel_line_chart_", input$export_dpi, "dpi.png"),
     contentType = "image/png",
     content = function(file) {
       save_ggplot_download(
         file = file,
-        plot_object = line_plot_object(),
+        plot_function = function() line_plot_object(),
         width = input$export_width,
         height = input$export_height,
         dpi = input$export_dpi,
-        bg = get_theme(input$line_theme)$figure_facecolor
+        bg = safe_theme_bg(input$line_theme)
       )
     }
   )
-
+  
   output$download_corr_png <- downloadHandler(
     filename = function() paste0("statcal_online_idx_financials_correlation_heatmap_", input$export_dpi, "dpi.png"),
     contentType = "image/png",
     content = function(file) {
       save_ggplot_download(
         file = file,
-        plot_object = corr_plot_object(),
+        plot_function = function() corr_plot_object(),
         width = input$export_width,
         height = input$export_height,
         dpi = input$export_dpi,
-        bg = get_theme(input$corr_theme)$figure_facecolor
+        bg = safe_theme_bg(input$corr_theme)
       )
     }
   )
-
+  
   output$download_scatter_png <- downloadHandler(
     filename = function() paste0("statcal_online_idx_financials_scatterplot_panel_", input$export_dpi, "dpi.png"),
     contentType = "image/png",
     content = function(file) {
       save_ggplot_download(
         file = file,
-        plot_object = scatter_plot_object(),
+        plot_function = function() scatter_plot_object(),
         width = input$export_width,
         height = input$export_height,
         dpi = input$export_dpi,
-        bg = get_theme(input$scatter_theme)$figure_facecolor
+        bg = safe_theme_bg(input$scatter_theme)
       )
     }
   )
-
+  
   output$download_regression_png <- downloadHandler(
     filename = function() paste0("statcal_online_idx_financials_regression_diagnostic_", input$export_dpi, "dpi.png"),
     contentType = "image/png",
     content = function(file) {
-      res <- regression_results()
       save_base_png_download(
         file = file,
-        plot_function = function() plot_regression_diagnostics(res$model, input$reg_theme, input$reg_show_grid),
+        plot_function = function() {
+          res <- regression_results()
+          plot_regression_diagnostics(res$model, input$reg_theme, input$reg_show_grid)
+        },
         width = input$export_width,
         height = input$export_height,
         dpi = input$export_dpi,
-        bg = get_theme(input$reg_theme)$figure_facecolor
+        bg = safe_theme_bg(input$reg_theme)
       )
     }
   )
-
+  
 }
 
 shinyApp(ui = ui, server = server)

@@ -1,22 +1,18 @@
-# STATCAL ONLINE IDX Financials Data Repository, Visualization, and Regression Analyzer
+# STATCAL ONLINE IDX Financials Visualization and Regression Shiny App
 
-This R Shiny version includes robust PNG download handlers for line chart, correlation heatmap, scatterplot, and regression diagnostics.
+This version adds:
 
-## Install packages
+1. Correlation heatmap color palette options suitable for publication-style figures.
+2. Flexible mean-value label positioning in the multi-panel line chart.
+3. Existing static PNG export through `www/statcal_exports/` is retained for Chrome, Opera, and RStudio Viewer compatibility.
+
+Run in RStudio:
 
 ```r
 install.packages(c(
   "shiny", "shinydashboard", "DT", "readxl", "dplyr", "ggplot2",
   "shinycssloaders", "lmtest", "car", "moments", "scales"
 ))
-```
 
-## Run app
-
-```r
 shiny::runApp(".")
 ```
-
-## Notes
-
-The PNG export now uses `contentType = "image/png"`, a temporary `.png` file, and a fallback error PNG to avoid browser download errors such as `download_line_png.txt` or `file wasn't available on site`.
